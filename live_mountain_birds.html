@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mountain Birds Live Wallpaper</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    body {
+        background-image: url("majestic_mountain_valley_vista.png");
+        background-size: cover;
+        background-position: center center;
+        background-repeat: no-repeat;
+    }
+
+    #birds {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="birds"></canvas>
+
+<script>
+(() => {
+    const canvas = document.getElementById("birds");
+    const ctx = canvas.getContext("2d");
+
+    let W = innerWidth;
+    let H = innerHeight;
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    function resize() {
+        W = innerWidth;
+        H = innerHeight;
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+        canvas.width = Math.floor(W * dpr);
+        canvas.height = Math.floor(H * dpr);
+        canvas.style.width = W + "px";
+        canvas.style.height = H + "px";
+
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    addEventListener("resize", resize);
+    resize();
+
+    const flocks = [];
+
+    const rand = (min, max) => Math.random() * (max - min) + min;
+    const randInt = (min, max) => Math.floor(rand(min, max + 1));
+
+    class Bird {
+        constructor(x, y, scale, phase, offsetX, offsetY) {
+            this.x = x;
+            this.y = y;
+            this.scale = scale;
+            this.phase = phase;
+            this.offsetX = offsetX;
+            this.offsetY = offsetY;
+            this.wobble = rand(0.6, 1.4);
+        }
+
+        draw(baseX, baseY, t, direction, alpha, perspective) {
+            const x = baseX + this.offsetX * perspective;
+            const y =
+                baseY +
+                this.offsetY * perspective +
+                Math.sin(t * 0.0011 * this.wobble + this.phase) * 2.0;
+
+            const s = this.scale * perspective;
+
+            // Wing flap
+            const flap = Math.sin(t * 0.009 + this.phase);
+            const wingLift = 3.5 * flap;
+
+            ctx.save();
+            ctx.translate(x, y);
+
+            // Mirror bird when travelling right-to-left.
+            if (direction < 0) ctx.scale(-1, 1);
+
+            ctx.scale(s, s);
+            ctx.globalAlpha = alpha;
+
+            // Slight atmospheric softness for distant birds.
+            ctx.strokeStyle = "rgba(20, 25, 25, 0.95)";
+            ctx.lineWidth = 1.55;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            // Realistic simple flying-bird silhouette:
+            // two slightly curved wings meeting at the body.
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(-4.4, -4.5 - wingLift, -9.2, -1.2);
+            ctx.quadraticCurveTo(-4.7, -1.2, 0, 0);
+            ctx.quadraticCurveTo(4.7, -1.2, 9.2, -1.2);
+            ctx.quadraticCurveTo(4.4, -4.5 - wingLift, 0, 0);
+            ctx.stroke();
+
+            // Tiny body/tail suggestion.
+            ctx.beginPath();
+            ctx.moveTo(-1.0, 0.15);
+            ctx.lineTo(1.9, 0.3);
+            ctx.lineTo(3.4, 1.25);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    }
+
+    class Flock {
+        constructor() {
+            this.direction = Math.random() < 0.5 ? 1 : -1;
+
+            // Birds stay mostly in sky area.
+            this.startY = rand(H * 0.10, H * 0.43);
+            this.endY = this.startY + rand(-H * 0.09, H * 0.09);
+
+            const margin = W * 0.10;
+            this.startX = this.direction > 0 ? -margin : W + margin;
+            this.endX = this.direction > 0 ? W + margin : -margin;
+
+            // Crossing duration.
+            this.duration = rand(10500, 21000);
+            this.startTime = performance.now();
+
+            // Most flocks are modest; occasionally a larger one.
+            this.count = Math.random() < 0.18
+                ? randInt(12, 20)
+                : randInt(5, 11);
+
+            // Farther flocks are smaller, slower-looking, and lighter.
+            this.depth = rand(0.55, 1.0);
+            this.baseScale = rand(0.55, 0.95) * this.depth;
+
+            this.birds = [];
+
+            // Loose V / natural migrating formation.
+            const spacingX = rand(17, 29);
+            const spacingY = rand(7, 15);
+
+            for (let i = 0; i < this.count; i++) {
+                let ox, oy;
+
+                if (i === 0) {
+                    ox = 0;
+                    oy = 0;
+                } else {
+                    const side = i % 2 === 0 ? 1 : -1;
+                    const row = Math.ceil(i / 2);
+
+                    ox = -row * spacingX + rand(-5, 5);
+                    oy = side * row * spacingY + rand(-4, 4);
+                }
+
+                // Break perfect geometry slightly.
+                ox += rand(-9, 9);
+                oy += rand(-5, 5);
+
+                this.birds.push(
+                    new Bird(
+                        0,
+                        0,
+                        this.baseScale * rand(0.80, 1.18),
+                        rand(0, Math.PI * 2),
+                        ox,
+                        oy
+                    )
+                );
+            }
+        }
+
+        draw(now) {
+            let p = (now - this.startTime) / this.duration;
+            if (p >= 1) return false;
+
+            // Ease the movement a little so it does not look robotic.
+            const eased = p < 0.5
+                ? 2 * p * p
+                : 1 - Math.pow(-2 * p + 2, 2) / 2;
+
+            const x = this.startX + (this.endX - this.startX) * eased;
+            const y =
+                this.startY +
+                (this.endY - this.startY) * eased +
+                Math.sin(p * Math.PI * 2) * H * 0.008;
+
+            // Fade gently in/out only near edges.
+            const fadeIn = Math.min(1, p / 0.08);
+            const fadeOut = Math.min(1, (1 - p) / 0.10);
+            const alpha = Math.min(fadeIn, fadeOut) * rand(0.82, 0.98);
+
+            // Mild scale change suggests changing distance.
+            const perspective =
+                0.92 + Math.sin(p * Math.PI) * 0.10;
+
+            for (const bird of this.birds) {
+                bird.draw(x, y, now, this.direction, alpha, perspective);
+            }
+
+            return true;
+        }
+    }
+
+    let nextFlockAt = performance.now() + rand(8000, 20000);
+
+    function scheduleNext(now) {
+        // Long gaps preserve the "mostly static wallpaper" feeling.
+        nextFlockAt = now + rand(15000, 48000);
+    }
+
+    function animate(now) {
+        ctx.clearRect(0, 0, W, H);
+
+        if (now >= nextFlockAt) {
+            // Usually one flock. Rarely a second smaller flock follows nearby.
+            flocks.push(new Flock());
+
+            if (Math.random() < 0.14) {
+                setTimeout(() => {
+                    if (!document.hidden) flocks.push(new Flock());
+                }, rand(1800, 5000));
+            }
+
+            scheduleNext(now);
+        }
+
+        for (let i = flocks.length - 1; i >= 0; i--) {
+            if (!flocks[i].draw(now)) {
+                flocks.splice(i, 1);
+            }
+        }
+
+        requestAnimationFrame(animate);
+    }
+
+    // Avoid creating extra flocks while the wallpaper/browser is hidden.
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) {
+            nextFlockAt = performance.now() + rand(5000, 16000);
+        }
+    });
+
+    requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
